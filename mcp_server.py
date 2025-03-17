@@ -4,6 +4,8 @@ from mcp.server.fastmcp import FastMCP
 import config
 import asyncio
 import json
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 
 # Configure logging
 logging.basicConfig(
@@ -70,14 +72,31 @@ def api_request(method, endpoint, params=None, json=None):
         raise
 
 # Replace existing Server initialization with:
+app = FastAPI()
 mcp = FastMCP(
     name=config.MCP_SERVER_NAME,
     version=config.MCP_SERVER_VERSION,
     description="TMF620 Catalog Interface",
-    instructions=config.MCP_SERVER_INSTRUCTIONS,  # Pass instructions during initialization
+    instructions=config.MCP_SERVER_INSTRUCTIONS,
     host=config.MCP_SERVER_HOST,
-    port=config.MCP_SERVER_PORT
+    port=config.MCP_SERVER_PORT,
+    app=app  # Pass the FastAPI app instance
 )
+
+@app.get("/")
+async def root():
+    """Root endpoint that returns a welcome message"""
+    return JSONResponse({
+        "message": "Welcome to the TMF620 MCP Server",
+        "status": "running",
+        "version": config.MCP_SERVER_VERSION,
+        "description": "This server implements the Model Context Protocol (MCP) for TMF620 Product Catalog Management API",
+        "endpoints": {
+            "mcp": "/mcp",
+            "health": "/health",
+            "docs": "/docs"
+        }
+    })
 
 # Update tool registration using SDK's preferred pattern
 @mcp.tool(
@@ -222,5 +241,6 @@ if __name__ == "__main__":
     logger.info(f"Starting MCP server for remote TMF620 API at {config.TMF620_API_URL}")
     logger.info(f"MCP server will be available at http://{config.MCP_SERVER_HOST}:{config.MCP_SERVER_PORT}")
     
-    # Run with SSE transport
-    mcp.run(transport='sse')
+    # Run with Uvicorn
+    import uvicorn
+    uvicorn.run(app, host=config.MCP_SERVER_HOST, port=config.MCP_SERVER_PORT, log_level="info")
