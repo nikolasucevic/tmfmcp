@@ -1,3 +1,4 @@
 git+https://github.com/modelcontextprotocol/python-sdk.git@main
 requests==2.31.0
+flask==2.3.3
 uvicorn>=0.23.2 
