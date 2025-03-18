@@ -26,13 +26,62 @@ Edit the `config.py` file and update the following settings:
 
 ## Running the Server
 
-Start the MCP server:
+1. Start the mock TMF620 API server (for testing):
+
+```bash
+python mock_tmf620_api.py
+```
+
+This will start the mock server on http://localhost:8000.
+
+2. Start the MCP server:
 
 ```bash
 python mcp_server.py
 ```
 
 The server will be available at http://localhost:7001 by default.
+
+## Using with Cursor
+
+To use this MCP server with Cursor:
+
+1. Make sure the MCP server is running at http://localhost:7001.
+
+2. In Cursor, go to Settings > Connections.
+
+3. Add a new MCP connection with the URL:
+   ```
+   http://localhost:7001
+   ```
+
+4. Name your connection (e.g., "TMF620 API").
+
+5. Save the connection.
+
+You should then see the MCP tools appear in Cursor when you click on the tools icon.
+
+### Troubleshooting Cursor Connection
+
+If Cursor can't find any tools in your MCP server:
+
+1. Verify the server is running correctly by checking the log messages in your terminal.
+
+2. Ensure both servers are running:
+   - The mock TMF620 API server on port 8000
+   - The MCP server on port 7001
+
+3. Try these alternative connection URLs in Cursor:
+   - `http://127.0.0.1:7001`
+   - `http://localhost:7001/`
+
+4. Check for network issues:
+   - Make sure your firewall allows connections to port 7001
+   - Try disabling any network security software temporarily
+
+5. Restart Cursor after making changes to the server.
+
+6. Try visiting http://localhost:7001/ in your browser - you should receive a response even if it's a 404.
 
 ## Using with Claude Desktop
 
@@ -54,8 +103,8 @@ To use this MCP server with Claude Desktop, add the following to your Claude Des
 The MCP server exposes the following tools to AI agents:
 
 ### Catalog Management
+- `get_catalog`: Get a specific catalog by ID
 - `list_catalogs`: List all available product catalogs
-- `get_catalog`: Get a specific product catalog by ID
 
 ### Product Offering Management
 - `list_product_offerings`: List all product offerings with optional filtering by catalog ID
@@ -68,7 +117,7 @@ The MCP server exposes the following tools to AI agents:
 - `create_product_specification`: Create a new product specification
 
 ### System Tools
-- `health`: Check the health of the server and API connection
+- `health_check`: Check the health of the server and API connection
 
 ## Example Usage
 
@@ -76,22 +125,22 @@ Here's an example of how an AI agent might use these tools:
 
 ```
 To list all catalogs:
-/tool tmf620.list_catalogs
+/tool list_catalogs
 
 To get a specific catalog:
-/tool tmf620.get_catalog catalog_id=123456
+/tool get_catalog catalog_id=123456
 
-To create a new catalog:
-/tool tmf620.create_catalog name="New Catalog" description="A new product catalog"
+To check health:
+/tool health_check
 
 To list product offerings:
-/tool tmf620.list_product_offerings name="Premium" is_bundle=true
+/tool list_product_offerings catalog_id=cat-001
 
 To get a specific product offering:
-/tool tmf620.get_product_offering offering_id=789012
+/tool get_product_offering offering_id=po-001
 
 To create a new product offering:
-/tool tmf620.create_product_offering name="Premium Service" description="High-quality service" is_bundle=false is_sellable=true
+/tool create_product_offering name="Premium Service" description="High-quality service" catalog_id="cat-001"
 ```
 
 ## Extending

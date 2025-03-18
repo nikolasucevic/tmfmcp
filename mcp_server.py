@@ -1,11 +1,10 @@
 import requests
 import logging
-from mcp.server.fastmcp import FastMCP
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 import config
 import asyncio
 import json
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
 
 # Configure logging
 logging.basicConfig(
@@ -13,6 +12,22 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger("tmf620-mcp")
+
+# Create FastAPI app
+app = FastAPI(
+    title=config.MCP_SERVER_NAME,
+    version=config.MCP_SERVER_VERSION,
+    description="TMF620 Catalog Interface"
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Helper function to make API requests
 def api_request(method, endpoint, params=None, json=None):
@@ -45,7 +60,7 @@ def api_request(method, endpoint, params=None, json=None):
     
     logger.info(f"Making {method} request to {url}")
     try:
-        response = requests.request(method, url, params=params, json=json, headers=headers)
+        response = requests.request(method, url, params=params, json=json, headers=headers, timeout=30)
         response.raise_for_status()
         return response.json()
     except requests.exceptions.HTTPError as e:
@@ -57,190 +72,190 @@ def api_request(method, endpoint, params=None, json=None):
         except:
             error_detail = response.text
         
-        raise Exception(f"TMF620 API error: {e.response.status_code} - {error_detail}")
+        raise HTTPException(status_code=e.response.status_code, detail=error_detail)
     except requests.exceptions.ConnectionError:
         logger.error(f"Connection error to {url}")
-        raise Exception(f"Could not connect to TMF620 API at {config.TMF620_API_URL}")
+        raise HTTPException(status_code=503, detail=f"Could not connect to TMF620 API at {config.TMF620_API_URL}")
     except requests.exceptions.Timeout:
         logger.error(f"Request timeout to {url}")
-        raise Exception("TMF620 API request timed out")
+        raise HTTPException(status_code=504, detail="TMF620 API request timed out")
     except requests.exceptions.RequestException as e:
         logger.error(f"Request error: {e}")
-        raise Exception(f"Error making request to TMF620 API: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error making request to TMF620 API: {str(e)}")
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
-        raise
-
-# Replace existing Server initialization with:
-app = FastAPI()
-mcp = FastMCP(
-    name=config.MCP_SERVER_NAME,
-    version=config.MCP_SERVER_VERSION,
-    description="TMF620 Catalog Interface",
-    instructions=config.MCP_SERVER_INSTRUCTIONS,
-    host=config.MCP_SERVER_HOST,
-    port=config.MCP_SERVER_PORT,
-    app=app  # Pass the FastAPI app instance
-)
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/")
 async def root():
-    """Root endpoint that returns a welcome message"""
-    return JSONResponse({
-        "message": "Welcome to the TMF620 MCP Server",
-        "status": "running",
+    """Root endpoint that returns available tools"""
+    return {
+        "name": config.MCP_SERVER_NAME,
         "version": config.MCP_SERVER_VERSION,
-        "description": "This server implements the Model Context Protocol (MCP) for TMF620 Product Catalog Management API",
-        "endpoints": {
-            "mcp": "/mcp",
-            "health": "/health",
-            "docs": "/docs"
-        }
-    })
+        "description": "TMF620 Catalog Interface",
+        "tools": [
+            {
+                "name": "get_catalog",
+                "description": "Get a specific catalog by its ID",
+                "parameters": {"catalog_id": "string"}
+            },
+            {
+                "name": "health_check",
+                "description": "Check server and API connection health",
+                "parameters": {}
+            },
+            {
+                "name": "list_catalogs",
+                "description": "List all available product catalogs",
+                "parameters": {}
+            },
+            {
+                "name": "create_product_offering",
+                "description": "Create a new product offering in a catalog",
+                "parameters": {
+                    "name": "string",
+                    "description": "string",
+                    "catalog_id": "string"
+                }
+            },
+            {
+                "name": "list_product_offerings",
+                "description": "List all product offerings in a catalog",
+                "parameters": {"catalog_id": "string (optional)"}
+            },
+            {
+                "name": "get_product_offering",
+                "description": "Get details of a specific product offering",
+                "parameters": {"offering_id": "string"}
+            },
+            {
+                "name": "list_product_specifications",
+                "description": "List all product specifications",
+                "parameters": {}
+            },
+            {
+                "name": "get_product_specification",
+                "description": "Get details of a specific product specification",
+                "parameters": {"specification_id": "string"}
+            },
+            {
+                "name": "create_product_specification",
+                "description": "Create a new product specification",
+                "parameters": {
+                    "name": "string",
+                    "description": "string",
+                    "version": "string (optional)"
+                }
+            }
+        ]
+    }
 
-# Update tool registration using SDK's preferred pattern
-@mcp.tool(
-    name="get_catalog",
-    description="Get specific catalog by ID"
-)
-async def get_catalog(catalog_id: str) -> dict:
-    """Catalog detail handler"""
+@app.get("/tools/get_catalog")
+async def get_catalog(catalog_id: str):
+    """Get specific catalog by ID"""
     try:
         endpoint = config.ENDPOINTS["catalog_detail"].format(id=catalog_id)
         return await asyncio.to_thread(api_request, "GET", endpoint)
     except Exception as e:
         logger.error(f"Error getting catalog: {e}")
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
-# Define tools using the @mcp.tool decorator
-@mcp.tool(
-    name="health",
-    description="Check server and API connection health"
-)
-async def health_check() -> dict:
-    """Health check endpoint handler"""
+@app.get("/tools/health_check")
+async def health_check():
+    """Check server and API connection health"""
     try:
         api_request("GET", config.ENDPOINTS["catalog_list"])
         return {"status": "healthy", "connection": "successful"}
     except Exception as e:
         return {"status": "unhealthy", "error": str(e)}
 
-@mcp.tool(
-    name="list_catalogs",
-    description="List all product catalogs"
-)
-async def list_catalogs() -> list:
-    """Catalog listing handler"""
+@app.get("/tools/list_catalogs")
+async def list_catalogs():
+    """List all product catalogs"""
     return await asyncio.to_thread(api_request, "GET", config.ENDPOINTS["catalog_list"])
 
-@mcp.resource("tmf620://catalogs")
-async def catalog_schema() -> str:
-    """Expose TMF620 API schema as a resource"""
-    return json.dumps(api_request("GET", config.ENDPOINTS["schema"]))
-
-@mcp.tool(
-    name="create_product_offering",
-    description="Create a new product offering"
-)
-async def create_product_offering(name: str, description: str, catalog_id: str) -> dict:
-    """Create a new product offering in the specified catalog"""
-    # Prepare the request payload
+@app.post("/tools/create_product_offering")
+async def create_product_offering(name: str, description: str, catalog_id: str):
+    """Create a new product offering"""
     payload = {
         "name": name,
         "description": description,
         "catalogId": catalog_id,
-        # Other required fields...
+        "lifecycleStatus": "Active",
+        "isBundle": False,
+        "isSellable": True
     }
-    
-    # Make the API call
     endpoint = config.ENDPOINTS["product_offering_create"]
     return await asyncio.to_thread(api_request, "POST", endpoint, json=payload)
 
-@mcp.tool(
-    name="list_product_offerings",
-    description="List all product offerings in a catalog"
-)
-async def list_product_offerings(catalog_id: str = None) -> dict:
-    """List product offerings, optionally filtered by catalog ID"""
+@app.get("/tools/list_product_offerings")
+async def list_product_offerings(catalog_id: str = None):
+    """List all product offerings in a catalog"""
     try:
-        # Prepare query parameters if catalog_id is provided
         params = {}
         if catalog_id and catalog_id.lower() != "null" and catalog_id != "":
             params["catalog.id"] = catalog_id
-        
-        # Make the API call
         endpoint = config.ENDPOINTS["product_offering_list"]
         return await asyncio.to_thread(api_request, "GET", endpoint, params=params)
     except Exception as e:
         logger.error(f"Error listing product offerings: {e}")
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
-@mcp.tool(
-    name="get_product_offering",
-    description="Get a specific product offering by ID"
-)
-async def get_product_offering(offering_id: str) -> dict:
-    """Get detailed information about a specific product offering"""
+@app.get("/tools/get_product_offering")
+async def get_product_offering(offering_id: str):
+    """Get details of a specific product offering"""
     try:
         endpoint = config.ENDPOINTS["product_offering_detail"].format(id=offering_id)
         return await asyncio.to_thread(api_request, "GET", endpoint)
     except Exception as e:
         logger.error(f"Error getting product offering: {e}")
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
-@mcp.tool(
-    name="list_product_specifications",
-    description="List all product specifications"
-)
-async def list_product_specifications() -> dict:
-    """List all product specifications in the system"""
+@app.get("/tools/list_product_specifications")
+async def list_product_specifications():
+    """List all product specifications"""
     try:
         endpoint = config.ENDPOINTS["product_specification_list"]
         return await asyncio.to_thread(api_request, "GET", endpoint)
     except Exception as e:
         logger.error(f"Error listing product specifications: {e}")
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
-@mcp.tool(
-    name="get_product_specification",
-    description="Get a specific product specification by ID"
-)
-async def get_product_specification(specification_id: str) -> dict:
-    """Get detailed information about a specific product specification"""
+@app.get("/tools/get_product_specification")
+async def get_product_specification(specification_id: str):
+    """Get details of a specific product specification"""
     try:
         endpoint = config.ENDPOINTS["product_specification_detail"].format(id=specification_id)
         return await asyncio.to_thread(api_request, "GET", endpoint)
     except Exception as e:
         logger.error(f"Error getting product specification: {e}")
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
-@mcp.tool(
-    name="create_product_specification",
-    description="Create a new product specification"
-)
-async def create_product_specification(name: str, description: str, version: str = "1.0") -> dict:
-    """Create a new product specification with the given details"""
+@app.post("/tools/create_product_specification")
+async def create_product_specification(name: str, description: str, version: str = "1.0"):
+    """Create a new product specification"""
     try:
-        # Prepare the request payload
         payload = {
             "name": name,
             "description": description,
             "version": version,
-            "lifecycleStatus": "Active",
-            # Add any other required fields based on TMF620 API requirements
+            "lifecycleStatus": "Active"
         }
-        
-        # Make the API call
-        endpoint = config.ENDPOINTS["product_specification_list"]  # POST to the list endpoint to create
+        endpoint = config.ENDPOINTS["product_specification_list"]
         return await asyncio.to_thread(api_request, "POST", endpoint, json=payload)
     except Exception as e:
         logger.error(f"Error creating product specification: {e}")
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
+    import uvicorn
     logger.info(f"Starting MCP server for remote TMF620 API at {config.TMF620_API_URL}")
     logger.info(f"MCP server will be available at http://{config.MCP_SERVER_HOST}:{config.MCP_SERVER_PORT}")
+    logger.info(f"Server configuration: name={config.MCP_SERVER_NAME}, version={config.MCP_SERVER_VERSION}")
     
-    # Run with Uvicorn
-    import uvicorn
-    uvicorn.run(app, host=config.MCP_SERVER_HOST, port=config.MCP_SERVER_PORT, log_level="info")
+    # Run the server
+    uvicorn.run(
+        app,
+        host=config.MCP_SERVER_HOST,
+        port=config.MCP_SERVER_PORT
+    )
